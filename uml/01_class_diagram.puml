@@ -1,0 +1,189 @@
+@startuml Class_Diagram
+!theme plain
+skinparam backgroundColor #FAFBFC
+skinparam classBackgroundColor #EEF4FB
+skinparam classBorderColor #1F4E79
+skinparam classHeaderBackgroundColor #1F4E79
+skinparam classFontColor #FFFFFF
+skinparam classHeaderFontColor #FFFFFF
+skinparam classFontSize 12
+skinparam classAttributeFontSize 11
+skinparam ArrowColor #1F4E79
+skinparam ArrowThickness 1.5
+skinparam NoteBackgroundColor #FFF9E6
+skinparam NoteBorderColor #CC9900
+skinparam linetype ortho
+skinparam padding 5
+skinparam roundcorner 8
+
+title Stock Options Time Series Predictor - Class Diagram
+
+' ─── LAYER: Presentation ─────────────────────────────────────
+package "Presentation Layer" #E8F0FE {
+
+    class PredictionController {
+        - predictionService : PredictionService
+        --
+        + predictWithEMA(ticker: String, days: int) : ResponseEntity<PredictionResult>
+        + predictWithSMA(ticker: String, days: int) : ResponseEntity<PredictionResult>
+        + predictWithRegression(ticker: String, days: int) : ResponseEntity<PredictionResult>
+    }
+
+    class StockPriceController {
+        - stockPriceService : StockPriceService
+        --
+        + getAllTickers() : ResponseEntity<List<String>>
+        + getPricesByTicker(ticker: String) : ResponseEntity<List<StockPrice>>
+        + getPricesInRange(ticker: String, from: LocalDate, to: LocalDate) : ResponseEntity<List<StockPrice>>
+        + createStockPrice(stockPrice: StockPrice) : ResponseEntity<StockPrice>
+        + createBatch(prices: List<StockPrice>) : ResponseEntity<List<StockPrice>>
+        + delete(id: Long) : ResponseEntity<Void>
+    }
+
+    class GlobalExceptionHandler {
+        + handleIllegalArgument(ex: IllegalArgumentException) : ResponseEntity<Map>
+        + handleValidation(ex: MethodArgumentNotValidException) : ResponseEntity<Map>
+        + handleGeneral(ex: Exception) : ResponseEntity<Map>
+        - buildErrorResponse(status: HttpStatus, message: String) : ResponseEntity<Map>
+    }
+}
+
+' ─── LAYER: Service ──────────────────────────────────────────
+package "Service Layer" #E8F5E9 {
+
+    class PredictionService {
+        - {static} EMA_PERIOD : int = 14
+        - {static} SMA_PERIOD : int = 20
+        - {static} MC : MathContext
+        - stockPriceRepository : StockPriceRepository
+        --
+        + predictWithEMA(ticker: String, forecastDays: int) : PredictionResult
+        + predictWithSMA(ticker: String, forecastDays: int) : PredictionResult
+        + predictWithLinearRegression(ticker: String, forecastDays: int) : PredictionResult
+        --
+        ~ calculateEMA(prices: List<BigDecimal>, period: int) : List<BigDecimal>
+        ~ calculateSMA(prices: List<BigDecimal>, period: int) : List<BigDecimal>
+        ~ fitLinearRegression(prices: List<BigDecimal>) : double[]
+        ~ calculateStdDev(prices: List<BigDecimal>) : BigDecimal
+        - buildForecast(lastDate: LocalDate, basePrice: BigDecimal, days: int) : List<ForecastPoint>
+        - extractClosePrices(prices: List<StockPrice>) : List<BigDecimal>
+        - validateSufficientData(prices: List<StockPrice>, minRequired: int, ticker: String) : void
+        - calculateErrorMetrics(actual: List<BigDecimal>, predicted: List<BigDecimal>, offset: int) : double[]
+        - calculateResidualStdDev(prices: List<BigDecimal>, slope: double, intercept: double) : BigDecimal
+        - calculateRegressionError(prices: List<BigDecimal>, slope: double, intercept: double) : double[]
+    }
+
+    class StockPriceService {
+        - repository : StockPriceRepository
+        --
+        + getAllPricesForTicker(ticker: String) : List<StockPrice>
+        + getPricesInRange(ticker: String, from: LocalDate, to: LocalDate) : List<StockPrice>
+        + getAllTickers() : List<String>
+        + save(stockPrice: StockPrice) : StockPrice
+        + saveAll(stockPrices: List<StockPrice>) : List<StockPrice>
+        + deleteById(id: Long) : void
+        + existsByTickerAndDate(ticker: String, date: LocalDate) : boolean
+    }
+}
+
+' ─── LAYER: Persistence ──────────────────────────────────────
+package "Persistence Layer" #FFF3E0 {
+
+    interface StockPriceRepository {
+        + findByTickerOrderByTradeDateAsc(ticker: String) : List<StockPrice>
+        + findByTickerAndTradeDateBetweenOrderByTradeDateAsc(ticker: String, from: LocalDate, to: LocalDate) : List<StockPrice>
+        + findByTickerAndTradeDate(ticker: String, date: LocalDate) : Optional<StockPrice>
+        + findAllTickers() : List<String>
+        + findRecentByTicker(ticker: String) : List<StockPrice>
+        + existsByTickerAndTradeDate(ticker: String, date: LocalDate) : boolean
+    }
+
+    class "JpaRepository<StockPrice, Long>" as JpaRepository <<Spring Data>> {
+        + save(entity: T) : T
+        + findById(id: ID) : Optional<T>
+        + findAll() : List<T>
+        + deleteById(id: ID) : void
+        + count() : long
+    }
+}
+
+' ─── LAYER: Model ────────────────────────────────────────────
+package "Domain Model" #FCE4EC {
+
+    class StockPrice <<@Entity>> {
+        + id : Long  {PK, @GeneratedValue}
+        + ticker : String  {@NotBlank, length=10}
+        + tradeDate : LocalDate  {@NotNull}
+        + openPrice : BigDecimal  {@Positive, precision=12, scale=4}
+        + highPrice : BigDecimal  {@Positive, precision=12, scale=4}
+        + lowPrice : BigDecimal  {@Positive, precision=12, scale=4}
+        + closePrice : BigDecimal  {@Positive, precision=12, scale=4}
+        + volume : Long  {@Positive}
+    }
+
+    class PredictionResult {
+        + ticker : String
+        + method : String
+        + predictionDate : LocalDate
+        + predictedPrice : BigDecimal
+        + confidenceLower : BigDecimal
+        + confidenceUpper : BigDecimal
+        + mape : double
+        + rmse : double
+        + forecast : List<ForecastPoint>
+    }
+
+    class ForecastPoint <<inner class>> {
+        + date : LocalDate
+        + price : BigDecimal
+    }
+}
+
+' ─── CONFIG ──────────────────────────────────────────────────
+package "Configuration" #F3E5F5 {
+
+    class DataInitializer <<@Component>> {
+        - repository : StockPriceRepository
+        --
+        + run(args: String...) : void
+        - generateSampleData(ticker: String, startPrice: double, days: int) : List<StockPrice>
+    }
+
+    class StockPredictorApplication <<@SpringBootApplication>> {
+        + {static} main(args: String[]) : void
+    }
+}
+
+' ─── RELATIONSHIPS ───────────────────────────────────────────
+PredictionController   --> PredictionService   : uses
+StockPriceController   --> StockPriceService   : uses
+
+PredictionService      --> StockPriceRepository : queries
+PredictionService      ..> PredictionResult     : creates
+PredictionService      ..> StockPrice           : reads
+
+StockPriceService      --> StockPriceRepository : delegates
+
+StockPriceRepository   --|> JpaRepository      : extends
+StockPriceRepository   ..> StockPrice          : manages
+
+PredictionResult       *-- ForecastPoint       : contains
+
+DataInitializer        --> StockPriceRepository : seeds
+
+note top of PredictionService
+  Implements three time series algorithms:
+  - EMA-14 (Exponential Moving Average)
+  - SMA-20 (Simple Moving Average)
+  - OLS Linear Regression
+  Confidence interval: predicted +/- 1.96 * stdDev
+end note
+
+note right of StockPrice
+  Mapped to table: stock_prices
+  Seeded with 60 days of synthetic
+  data for AAPL, MSFT, GOOGL
+  on application startup
+end note
+
+@enduml

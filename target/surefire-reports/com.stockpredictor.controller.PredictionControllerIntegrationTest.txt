@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.stockpredictor.controller.PredictionControllerIntegrationTest
+-------------------------------------------------------------------------------
+Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 15.26 s -- in com.stockpredictor.controller.PredictionControllerIntegrationTest

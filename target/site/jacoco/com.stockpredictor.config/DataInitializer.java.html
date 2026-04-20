@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DataInitializer.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">stock-predictor</a> &gt; <a href="index.source.html" class="el_package">com.stockpredictor.config</a> &gt; <span class="el_source">DataInitializer.java</span></div><h1>DataInitializer.java</h1><pre class="source lang-java linenums">package com.stockpredictor.config;
+
+import com.stockpredictor.model.StockPrice;
+import com.stockpredictor.repository.StockPriceRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+
+<span class="fc" id="L16">@Slf4j</span>
+@Component
+@RequiredArgsConstructor
+public class DataInitializer implements CommandLineRunner {
+
+    private final StockPriceRepository repository;
+
+    @Override
+    public void run(String... args) {
+<span class="pc bpc" id="L25" title="1 of 2 branches missed.">        if (repository.count() == 0) {</span>
+<span class="fc" id="L26">            log.info(&quot;Seeding sample stock data...&quot;);</span>
+<span class="fc" id="L27">            repository.saveAll(generateSampleData(&quot;AAPL&quot;, 180.0, 60));</span>
+<span class="fc" id="L28">            repository.saveAll(generateSampleData(&quot;MSFT&quot;, 310.0, 60));</span>
+<span class="fc" id="L29">            repository.saveAll(generateSampleData(&quot;GOOGL&quot;, 140.0, 60));</span>
+<span class="fc" id="L30">            log.info(&quot;Sample data seeded successfully.&quot;);</span>
+        }
+<span class="fc" id="L32">    }</span>
+
+    private List&lt;StockPrice&gt; generateSampleData(String ticker, double startPrice, int days) {
+<span class="fc" id="L35">        List&lt;StockPrice&gt; prices = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L36">        Random rng = new Random(ticker.hashCode());</span>
+<span class="fc" id="L37">        double price = startPrice;</span>
+<span class="fc" id="L38">        LocalDate date = LocalDate.now().minusDays(days);</span>
+
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        for (int i = 0; i &lt; days; i++) {</span>
+<span class="fc" id="L41">            double change = (rng.nextDouble() - 0.48) * 3.0;</span>
+<span class="fc" id="L42">            price = Math.max(1.0, price + change);</span>
+
+<span class="fc" id="L44">            double high = price + rng.nextDouble() * 2;</span>
+<span class="fc" id="L45">            double low = price - rng.nextDouble() * 2;</span>
+<span class="fc" id="L46">            double open = low + rng.nextDouble() * (high - low);</span>
+
+<span class="fc" id="L48">            prices.add(StockPrice.builder()</span>
+<span class="fc" id="L49">                    .ticker(ticker)</span>
+<span class="fc" id="L50">                    .tradeDate(date.plusDays(i))</span>
+<span class="fc" id="L51">                    .openPrice(BigDecimal.valueOf(open).setScale(4, java.math.RoundingMode.HALF_UP))</span>
+<span class="fc" id="L52">                    .highPrice(BigDecimal.valueOf(high).setScale(4, java.math.RoundingMode.HALF_UP))</span>
+<span class="fc" id="L53">                    .lowPrice(BigDecimal.valueOf(low).setScale(4, java.math.RoundingMode.HALF_UP))</span>
+<span class="fc" id="L54">                    .closePrice(BigDecimal.valueOf(price).setScale(4, java.math.RoundingMode.HALF_UP))</span>
+<span class="fc" id="L55">                    .volume((long) (rng.nextInt(50000000) + 10000000))</span>
+<span class="fc" id="L56">                    .build());</span>
+        }
+<span class="fc" id="L58">        return prices;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

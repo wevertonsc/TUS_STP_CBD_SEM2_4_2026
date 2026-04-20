@@ -1,0 +1,71 @@
+# jenkins/casc.yaml
+# Jenkins Configuration as Code (JCasC)
+# Auto-configures Jenkins on first boot:
+#   - Admin credentials
+#   - JDK and Maven tool installations
+#   - SonarQube server connection
+#   - The stock-predictor pipeline job
+#
+# This file is mounted into the container at:
+#   /var/jenkins_home/casc_configs/casc.yaml
+# and picked up via the CASC_JENKINS_CONFIG environment variable.
+
+jenkins:
+  systemMessage: "Stock Options Time Series Predictor - CI/CD Pipeline"
+
+  # ── Security: create admin user ─────────────────────────────────────────────
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin123"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  # ── Global tools ─────────────────────────────────────────────────────────────
+tool:
+  jdk:
+    installations:
+      - name: "JDK-21"
+        home: "/opt/java/openjdk"   # pre-installed in jenkins/jenkins:lts-jdk21
+
+  maven:
+    installations:
+      - name: "Maven-3.9"
+        home: "/opt/maven"          # installed by jenkins/Dockerfile
+
+# ── SonarQube server ─────────────────────────────────────────────────────────
+unclassified:
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: false
+    installations:
+      - name: "SonarQube"
+        serverUrl: "http://sonarqube:9000"
+        credentialsId: "sonar-token"
+
+# ── Pipeline job ─────────────────────────────────────────────────────────────
+jobs:
+  - script: |
+      pipelineJob('stock-predictor') {
+        description('Stock Options Time Series Predictor - Full CI/CD Pipeline')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/wevertoncastanho/stock-predictor.git')
+                  credentials('github-credentials')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+          }
+        }
+        triggers {
+          githubPush()
+        }
+      }

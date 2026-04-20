@@ -1,0 +1,44 @@
+# jenkins/plugins.txt
+# All plugins required to run the stock-predictor Jenkinsfile pipeline.
+# Format: plugin-id:version  (or just plugin-id for latest)
+# Updated for Jenkins LTS 2.x
+
+# ── Pipeline core ─────────────────────────────────────────────────────────────
+workflow-aggregator:latest
+pipeline-stage-view:latest
+pipeline-graph-view:latest
+
+# ── SCM ───────────────────────────────────────────────────────────────────────
+git:latest
+github:latest
+github-branch-source:latest
+
+# ── Build tools ───────────────────────────────────────────────────────────────
+maven-plugin:latest
+
+# ── Test reporting ────────────────────────────────────────────────────────────
+junit:latest
+jacoco:latest
+
+# ── Code quality ──────────────────────────────────────────────────────────────
+sonar:latest
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+docker-workflow:latest
+docker-plugin:latest
+
+# ── Credentials ───────────────────────────────────────────────────────────────
+credentials:latest
+credentials-binding:latest
+plain-credentials:latest
+
+# ── UI & UX ───────────────────────────────────────────────────────────────────
+blueocean:latest
+antisamy-markup-formatter:latest
+timestamper:latest
+ws-cleanup:latest
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+build-timeout:latest
+email-ext:latest
+mailer:latest

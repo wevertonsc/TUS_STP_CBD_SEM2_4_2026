@@ -1,0 +1,95 @@
+@startuml Sequence_EMA_Prediction
+!theme plain
+skinparam backgroundColor #FAFBFC
+skinparam sequenceArrowThickness 2
+skinparam sequenceArrowColor #1F4E79
+skinparam participantBackgroundColor #1F4E79
+skinparam participantFontColor #FFFFFF
+skinparam participantBorderColor #0D3A5C
+skinparam participantFontSize 12
+skinparam sequenceGroupBackgroundColor #EEF4FB
+skinparam sequenceGroupBorderColor #1F4E79
+skinparam noteBorderColor #CC9900
+skinparam noteBackgroundColor #FFF9E6
+skinparam lifelineBorderColor #1F4E79
+skinparam activationBorderColor #1F4E79
+skinparam activationBackgroundColor #D6E4F0
+skinparam responseMessageBelowArrow true
+
+title Stock Options Predictor - Sequence Diagram: EMA Prediction Request
+
+actor "API Client" as Client #2E75B6
+participant "PredictionController\n<<@RestController>>" as Controller #1F4E79
+participant "PredictionService\n<<@Service>>" as Service #1F4E79
+participant "StockPriceRepository\n<<@Repository>>" as Repository #1F4E79
+database "H2 Database\n(stock_prices)" as DB #2E7D32
+
+== Happy Path: Sufficient Data ==
+
+Client -> Controller : GET /api/v1/predict/ema/AAPL?days=5\n[HTTP Request]
+
+activate Controller #D6E4F0
+
+Controller -> Service : predictWithEMA("AAPL", 5)
+activate Service #D6E4F0
+
+Service -> Repository : findByTickerOrderByTradeDateAsc("AAPL")
+activate Repository #D6E4F0
+
+Repository -> DB : SELECT * FROM stock_prices\nWHERE ticker='AAPL'\nORDER BY trade_date ASC
+activate DB #C8E6C9
+
+DB --> Repository : ResultSet (60 rows)
+deactivate DB
+
+Repository --> Service : List<StockPrice> (60 records)
+deactivate Repository
+
+Service -> Service : validateSufficientData(prices, 14, "AAPL")\n[60 >= 14: PASS]
+
+Service -> Service : extractClosePrices(prices)\n→ List<BigDecimal> (60 values)
+
+group EMA-14 Calculation
+    Service -> Service : calculateEMA(closePrices, 14)\n1. SMA of first 14 prices → initialEMA\n2. EMA(i) = (price(i) - EMA(i-1)) × (2/15) + EMA(i-1)\n→ List<BigDecimal> (47 EMA values)
+end
+
+group Error Metrics
+    Service -> Service : calculateErrorMetrics(actual, ema, 14)\n→ double[] { MAPE, RMSE }
+end
+
+group Confidence Interval
+    Service -> Service : calculateStdDev(closePrices)\n→ stdDev (BigDecimal)\nmargin = stdDev × 1.96
+end
+
+group 5-Day Forecast
+    Service -> Service : buildForecast(lastDate, lastEMA, 5)\n→ List<ForecastPoint> [date+1 .. date+5]
+end
+
+Service --> Controller : PredictionResult\n{ ticker, method, predictedPrice,\n  confidenceLower, confidenceUpper,\n  mape, rmse, forecast[5] }
+deactivate Service
+
+Controller --> Client : 200 OK\nContent-Type: application/json\n{ "ticker": "AAPL",\n  "method": "Exponential Moving Average (EMA-14)",\n  "predictedPrice": 183.4521,\n  "confidenceLower": 178.1204,\n  "confidenceUpper": 188.7838,\n  "mape": 1.23,\n  "rmse": 2.45,\n  "forecast": [...] }
+deactivate Controller
+
+== Error Path: Insufficient Data ==
+
+Client -> Controller : GET /api/v1/predict/ema/TINY?days=5
+
+activate Controller #D6E4F0
+Controller -> Service : predictWithEMA("TINY", 5)
+activate Service #D6E4F0
+
+Service -> Repository : findByTickerOrderByTradeDateAsc("TINY")
+activate Repository #D6E4F0
+Repository --> Service : List<StockPrice> (5 records)
+deactivate Repository
+
+Service -> Service : validateSufficientData(prices, 14, "TINY")\n[5 < 14: FAIL]
+Service -[#CC0000]-> Service : throw IllegalArgumentException\n"Insufficient data for ticker 'TINY'.\nRequired: 14, Found: 5"
+deactivate Service
+
+Controller -> Controller : GlobalExceptionHandler\nhandleIllegalArgument()
+Controller --> Client : 400 Bad Request\n{ "status": 400,\n  "error": "Bad Request",\n  "message": "Insufficient data for ticker 'TINY'..." }
+deactivate Controller
+
+@enduml

@@ -1,0 +1,131 @@
+@startuml Sequence_CICD_Pipeline
+!theme plain
+skinparam backgroundColor #FAFBFC
+skinparam sequenceArrowThickness 2
+skinparam sequenceArrowColor #1F4E79
+skinparam participantBackgroundColor #1F4E79
+skinparam participantFontColor #FFFFFF
+skinparam participantBorderColor #0D3A5C
+skinparam participantFontSize 11
+skinparam sequenceGroupBackgroundColor #EEF4FB
+skinparam sequenceGroupBorderColor #1F4E79
+skinparam noteBorderColor #CC9900
+skinparam noteBackgroundColor #FFF9E6
+skinparam lifelineBorderColor #1F4E79
+skinparam activationBackgroundColor #D6E4F0
+skinparam responseMessageBelowArrow true
+
+title Stock Options Predictor - Sequence Diagram: CI/CD Pipeline Execution
+
+actor "Developer" as Dev #2E75B6
+participant "GitHub\nRepository" as GitHub #2E7D32
+participant "Jenkins\nPipeline" as Jenkins #C62828
+participant "Maven\nBuild Tool" as Maven #E65100
+participant "SonarQube\nServer" as Sonar #6A1B9A
+participant "Docker\nEngine" as Docker #0277BD
+participant "Deployment\nTarget" as Deploy #37474F
+
+== Stage 1: Trigger ==
+
+Dev -> Dev : git add .\ngit commit -m "feat: add OLS regression endpoint"
+Dev -> GitHub : git push origin main
+
+activate GitHub #C8E6C9
+GitHub -> Jenkins : Webhook: POST /github-webhook/\n{ ref: "refs/heads/main", commit: "a3f9b21" }
+deactivate GitHub
+
+activate Jenkins #FFCDD2
+
+== Stage 2: Checkout ==
+
+Jenkins -> GitHub : git clone / git checkout a3f9b21
+activate GitHub #C8E6C9
+GitHub --> Jenkins : Source code (stock-predictor/)
+deactivate GitHub
+
+== Stage 3: Build ==
+
+Jenkins -> Maven : mvn clean package -DskipTests -B
+activate Maven #FFE0B2
+Maven -> Maven : Compile sources\nResolve dependencies\nPackage JAR
+Maven --> Jenkins : BUILD SUCCESS\ntarget/stock-predictor-1.0.0.jar
+deactivate Maven
+
+Jenkins -> Jenkins : archiveArtifacts(target/*.jar)
+
+== Stage 4: Unit Tests ==
+
+Jenkins -> Maven : mvn test -B
+activate Maven #FFE0B2
+Maven -> Maven : Run PredictionServiceTest\n(10 Mockito-isolated tests)\nJaCoCo agent active
+Maven --> Jenkins : Tests: 10 passed, 0 failed\ntarget/surefire-reports/*.xml
+deactivate Maven
+Jenkins -> Jenkins : junit(target/surefire-reports/**/*.xml)
+
+== Stage 5: Integration Tests ==
+
+Jenkins -> Maven : mvn verify -B
+activate Maven #FFE0B2
+Maven -> Maven : Boot Spring context (H2)\nRun PredictionControllerIntegrationTest\n(10 MockMvc tests)\nJaCoCo generates jacoco.xml
+Maven --> Jenkins : Tests: 20 passed, 0 failed\nLine coverage: 84%  [>= 70%: PASS]
+deactivate Maven
+
+Jenkins -> Jenkins : jacoco(minimumLineCoverage: 70)\n[PASS]
+
+== Stage 6: Code Quality Analysis ==
+
+Jenkins -> Maven : mvn sonar:sonar\n-Dsonar.token=***\n-Dsonar.coverage.jacoco.xmlReportPaths=...
+activate Maven #FFE0B2
+Maven -> Sonar : POST /api/ce/submit\n{ projectKey: "stock-predictor",\n  coverage: 84%, bugs: 0,\n  vulnerabilities: 0, smells: 3 }
+activate Sonar #E1BEE7
+Sonar --> Maven : { taskId: "AYx7j2..." }
+deactivate Sonar
+Maven --> Jenkins : Analysis submitted
+deactivate Maven
+
+== Stage 7: Quality Gate ==
+
+Jenkins -> Sonar : waitForQualityGate()\nGET /api/qualitygates/project_status?projectKey=stock-predictor
+activate Sonar #E1BEE7
+Sonar --> Jenkins : { status: "OK",\n  conditions: [\n    { metric: "coverage", status: "OK", value: "84" },\n    { metric: "new_bugs", status: "OK", value: "0" }\n  ] }
+deactivate Sonar
+
+Jenkins -> Jenkins : Quality Gate: PASSED\n[abortPipeline: false]
+
+== Stage 8: Docker Image Build ==
+
+Jenkins -> Docker : docker build -t stock-predictor:42 .
+activate Docker #BBDEFB
+Docker -> Docker : Stage 1 (builder): maven:3.9 image\nmvn package -DskipTests\nStage 2 (runtime): eclipse-temurin:17-jre-alpine\nCOPY stock-predictor-1.0.0.jar app.jar\nADD USER appuser (non-root)
+Docker --> Jenkins : Image built: stock-predictor:42\ndocker tag stock-predictor:42 stock-predictor:latest
+deactivate Docker
+
+== Stage 9: Deploy ==
+
+Jenkins -> Deploy : docker stop stock-predictor || true\ndocker rm stock-predictor || true
+activate Deploy #B0BEC5
+Deploy --> Jenkins : Container removed
+
+Jenkins -> Deploy : docker run -d --name stock-predictor\n-p 8080:8080 --restart unless-stopped\nstock-predictor:latest
+Deploy -> Deploy : JVM startup\nSpring Boot auto-config\nH2 schema created\nDataInitializer: seed 180 records
+Deploy --> Jenkins : Container ID: d3a1f9c7...
+
+Jenkins -> Deploy : sleep 20s\ncurl --fail http://localhost:8080/actuator/health
+Deploy --> Jenkins : 200 OK  { "status": "UP" }
+deactivate Deploy
+
+Jenkins --> Dev : Pipeline #42 SUCCESS\nDuration: 5m 43s\nDeployed: stock-predictor:latest
+deactivate Jenkins
+
+== Failure Path: Quality Gate Failure ==
+
+note over Jenkins, Sonar
+  If SonarQube returns { status: "ERROR" }
+  (e.g. coverage < 70% or blocker bug found):
+  waitForQualityGate() throws exception
+  → Pipeline ABORTED at Stage 7
+  → Docker build and Deploy are SKIPPED
+  → Developer notified of gate failure
+end note
+
+@enduml

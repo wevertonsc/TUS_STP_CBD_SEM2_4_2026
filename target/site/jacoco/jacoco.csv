@@ -1,0 +1,8 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+stock-predictor,com.stockpredictor.config,DataInitializer,0,151,1,3,0,28,1,4,0,3
+stock-predictor,com.stockpredictor.config,GlobalExceptionHandler,11,73,0,0,2,15,1,6,1,6
+stock-predictor,com.stockpredictor,StockPredictorApplication,5,3,0,0,2,1,1,1,1,1
+stock-predictor,com.stockpredictor.controller,PredictionController,0,24,0,0,0,3,0,3,0,3
+stock-predictor,com.stockpredictor.controller,StockPriceController,23,19,0,0,4,3,3,3,3,3
+stock-predictor,com.stockpredictor.service,PredictionService,2,821,4,22,0,158,4,24,0,15
+stock-predictor,com.stockpredictor.service,StockPriceService,61,36,0,0,10,7,5,4,5,4

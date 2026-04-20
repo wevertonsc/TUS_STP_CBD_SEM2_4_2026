@@ -1,0 +1,116 @@
+@startuml Deployment_Diagram
+!theme plain
+skinparam backgroundColor #FAFBFC
+skinparam nodeBackgroundColor #EEF4FB
+skinparam nodeBorderColor #1F4E79
+skinparam nodeFontColor #1F4E79
+skinparam nodeFontSize 13
+skinparam componentBackgroundColor #FFFFFF
+skinparam componentBorderColor #1F4E79
+skinparam componentFontSize 11
+skinparam artifactBackgroundColor #FFF9E6
+skinparam artifactBorderColor #CC9900
+skinparam ArrowColor #1F4E79
+skinparam ArrowThickness 1.5
+skinparam noteBorderColor #CC9900
+skinparam noteBackgroundColor #FFF9E6
+skinparam padding 6
+skinparam roundcorner 10
+skinparam linetype ortho
+
+title Stock Options Predictor - Deployment Diagram
+
+node "Developer Workstation\n<<local machine>>" as Dev #ECEFF1 {
+    component [Git Client\nv2.x] as GitClient
+    component [IntelliJ IDEA /\nVS Code] as IDE
+    component [Maven 3.9\n(local build / test)] as LocalMaven
+    artifact [stock-predictor/\n(source tree)] as SourceTree
+}
+
+node "GitHub\n<<cloud SaaS>>" as GitHub #E8F5E9 {
+    component [Repository\nmain branch] as Repo
+    component [GitHub Actions\nRunners\n(ubuntu-latest)] as GHActions
+    component [Webhook Service\nPOST /github-webhook/] as Webhook
+}
+
+node "Jenkins Host\n<<Linux server | localhost>>" as JenkinsHost #FFF3E0 {
+    component [Jenkins LTS\nv2.x] as JenkinsSvc
+    component [Maven Agent\n(embedded)] as MvnAgent
+    component [Docker CLI] as DockerCLI
+    artifact [Jenkinsfile\n(pipeline as code)] as JenkinsFile
+    artifact [stock-predictor-1.0.0.jar\n(archived artefact)] as JAR
+}
+
+node "SonarQube Host\n<<Linux server | localhost:9000>>" as SQHost #F3E5F5 {
+    component [SonarQube Server\nCommunity Edition 10.4] as SQServer
+    database [PostgreSQL\n(SQ internal store)] as SQDB
+    SQServer --> SQDB
+}
+
+node "Application Host\n<<Docker Engine | localhost:8080>>" as AppHost #E3F2FD {
+
+    node "Docker Container\nstock-predictor:latest\n(eclipse-temurin:17-jre-alpine)" as Container #D6E4F0 {
+        component [Spring Boot 3.2\nEmbedded Tomcat\nport: 8080] as SpringApp
+        component [PredictionController\nStockPriceController] as Controllers
+        component [PredictionService\n(EMA / SMA / OLS)] as Services
+        component [StockPriceRepository\n(Spring Data JPA)] as Repository
+        database [H2 In-Memory DB\njdbc:h2:mem:stockdb\nTable: stock_prices] as H2
+        SpringApp --> Controllers
+        Controllers --> Services
+        Services --> Repository
+        Repository --> H2
+    }
+}
+
+node "API Consumer\n<<external client>>" as Client #ECEFF1 {
+    component [Postman /\ncurl / Browser] as ClientApp
+    component [Swagger UI\nlocalhost:8080/swagger-ui.html] as SwaggerBrowser
+}
+
+' ─── Communication paths ──────────────────────────────────────
+IDE          --> SourceTree        : edits
+GitClient    --> SourceTree        : git add / commit
+GitClient    --> Repo              : git push (HTTPS/SSH)
+
+Repo         --> Webhook           : push event
+Webhook      --> JenkinsSvc        : POST /github-webhook/
+Repo         --> GHActions         : trigger workflow\n(.github/workflows/ci-cd.yml)
+
+JenkinsSvc   --> Repo              : git clone (checkout)
+JenkinsSvc   --> MvnAgent          : invoke Maven lifecycle
+MvnAgent     --> JAR               : mvn package → *.jar
+MvnAgent     --> SQServer          : mvn sonar:sonar\n(analysis upload)
+SQServer     --> JenkinsSvc        : quality gate result\n(PASS / FAIL)
+
+JenkinsSvc   --> DockerCLI         : docker build / run
+DockerCLI    --> Container         : docker run -p 8080:8080
+
+JenkinsSvc   --> Container         : curl /actuator/health\n(post-deploy smoke test)
+
+ClientApp    --> SpringApp         : HTTP GET/POST\nlocalhost:8080/api/v1/**
+SwaggerBrowser --> SpringApp       : HTTP GET\nlocalhost:8080/swagger-ui.html
+
+note bottom of Container
+  HEALTHCHECK every 30s:
+  wget http://localhost:8080/actuator/health
+  restart: unless-stopped
+  user: appuser (non-root)
+  JVM flags: -XX:+UseContainerSupport
+             -XX:MaxRAMPercentage=75.0
+end note
+
+note right of SQHost
+  Quality Gate criteria:
+  - Line coverage >= 70%
+  - Blocker issues = 0
+  - Critical vulnerabilities = 0
+  Fails pipeline if not met
+end note
+
+note top of GitHub
+  Also mirrors pipeline via
+  GitHub Actions on push to main.
+  Equivalent stages to Jenkinsfile.
+end note
+
+@enduml

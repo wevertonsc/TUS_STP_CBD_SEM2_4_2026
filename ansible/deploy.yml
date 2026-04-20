@@ -1,0 +1,58 @@
+---
+- name: Deploy Stock Predictor Microservice
+  hosts: app_servers
+  become: yes
+  vars:
+    app_name: stock-predictor
+    app_port: 8080
+    docker_image: "stock-predictor:latest"
+    health_check_url: "http://localhost:{{ app_port }}/actuator/health"
+
+  tasks:
+    - name: Ensure Docker is installed
+      package:
+        name: docker.io
+        state: present
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Pull latest Docker image
+      community.docker.docker_image:
+        name: "{{ docker_image }}"
+        source: pull
+
+    - name: Stop and remove existing container if running
+      community.docker.docker_container:
+        name: "{{ app_name }}"
+        state: absent
+        force_kill: yes
+
+    - name: Start new application container
+      community.docker.docker_container:
+        name: "{{ app_name }}"
+        image: "{{ docker_image }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ app_port }}:8080"
+        env:
+          SPRING_PROFILES_ACTIVE: "prod"
+          JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+    - name: Wait for application health check to pass
+      uri:
+        url: "{{ health_check_url }}"
+        return_content: yes
+        status_code: 200
+      register: health_result
+      until: health_result.status == 200
+      retries: 12
+      delay: 10
+
+    - name: Print deployment result
+      debug:
+        msg: "Deployment successful. Health: {{ health_result.json.status }}"

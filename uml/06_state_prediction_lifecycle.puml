@@ -1,0 +1,115 @@
+@startuml State_Prediction_Lifecycle
+!theme plain
+skinparam backgroundColor #FAFBFC
+skinparam stateBackgroundColor #EEF4FB
+skinparam stateBorderColor #1F4E79
+skinparam stateFontColor #000000
+skinparam stateFontSize 12
+skinparam stateArrowColor #1F4E79
+skinparam stateArrowThickness 2
+skinparam noteBorderColor #CC9900
+skinparam noteBackgroundColor #FFF9E6
+skinparam roundcorner 10
+
+title Stock Options Predictor - State Diagram: Prediction Request Lifecycle
+
+[*] --> Idle : Application started\nH2 seeded (180 records)
+
+state "Idle\n(Spring MVC waiting)" as Idle #D6E4F0
+
+state "Request Received" as Received #EEF4FB {
+    state "Parsing HTTP Request\n(ticker, days)" as Parsing
+    state "Controller Routing\n(EMA / SMA / Regression)" as Routing
+    Parsing --> Routing
+}
+
+state "Data Retrieval" as DataRetrieval #E8F5E9 {
+    state "Query Repository\nfindByTickerOrderByTradeDateAsc()" as Querying
+    state "Records Fetched\nList<StockPrice>" as Fetched
+    Querying --> Fetched
+}
+
+state "Validation" as Validation #FFF3E0 {
+    state "Count records\nvs minimum required" as Counting
+    state "EMA: >= 14 records\nSMA: >= 20 records\nOLS: >= 10 records" as Checking
+    Counting --> Checking
+}
+
+state "Algorithm Execution" as Algorithm #F3E5F5 {
+    state "Extract close prices\nList<BigDecimal>" as Extract
+    state "Run selected algorithm\n(EMA / SMA / OLS)" as Compute
+    state "Calculate error metrics\n(MAPE, RMSE)" as Metrics
+    state "Build confidence interval\npredicted +/- 1.96 * stdDev" as Confidence
+    state "Build forecast array\n[date+1 .. date+N]" as Forecast
+    Extract --> Compute
+    Compute --> Metrics
+    Metrics --> Confidence
+    Confidence --> Forecast
+}
+
+state "Response Assembly" as Assembly #D6E4F0 {
+    state "Build PredictionResult\n(ticker, method, price,\nbounds, mape, rmse, forecast)" as Build
+    state "Serialise to JSON\n(Jackson ObjectMapper)" as Serialise
+    Build --> Serialise
+}
+
+state "Error Handling" as Error #FFCDD2 {
+    state "IllegalArgumentException\n(insufficient data)" as BizError
+    state "MethodArgumentNotValidException\n(bad request body)" as ValError
+    state "Exception\n(unexpected failure)" as SysError
+}
+
+state "HTTP 400 Response\n{ status, error, message }" as Resp400 #FFCDD2
+state "HTTP 200 Response\nPredictionResult JSON" as Resp200 #C8E6C9
+state "HTTP 500 Response\n{ status: 500, error: ... }" as Resp500 #FFCDD2
+
+' ─── Transitions ──────────────────────────────────────────────
+Idle --> Received : HTTP GET /api/v1/predict/{method}/{ticker}?days=N
+
+Received --> DataRetrieval : request parsed and routed
+
+DataRetrieval --> Validation : records returned from H2
+
+Validation --> Algorithm : records >= minimum required
+Validation --> Error : records < minimum required\nIllegalArgumentException thrown
+
+Algorithm --> Assembly : all calculations complete
+
+Assembly --> Resp200 : HTTP 200 OK\nContent-Type: application/json
+
+Error --> BizError : business rule violation
+Error --> ValError : invalid request parameters
+Error --> SysError : unexpected runtime exception
+
+BizError --> Resp400 : GlobalExceptionHandler.handleIllegalArgument()
+ValError --> Resp400 : GlobalExceptionHandler.handleValidation()
+SysError --> Resp500 : GlobalExceptionHandler.handleGeneral()
+
+Resp200 --> Idle : connection released
+Resp400 --> Idle : connection released
+Resp500 --> Idle : connection released
+
+note right of Algorithm
+  EMA:
+    k = 2 / (period + 1)
+    EMA[0] = SMA of first 14 prices
+    EMA[i] = (price[i] - EMA[i-1]) * k + EMA[i-1]
+
+  SMA:
+    SMA[i] = sum(close[i-20..i]) / 20
+
+  OLS:
+    slope = (n*sum(xy) - sum(x)*sum(y))
+            / (n*sum(x2) - sum(x)^2)
+    intercept = (sum(y) - slope*sum(x)) / n
+end note
+
+note left of Validation
+  Minimum data requirements:
+  - EMA-14: 14 records
+  - SMA-20: 20 records
+  - OLS:    10 records
+  Failure → HTTP 400 Bad Request
+end note
+
+@enduml

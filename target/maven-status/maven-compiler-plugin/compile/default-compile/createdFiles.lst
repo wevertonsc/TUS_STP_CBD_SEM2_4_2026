@@ -1,0 +1,14 @@
+com\stockpredictor\model\PredictionResult$PredictionResultBuilder.class
+com\stockpredictor\model\StockPrice$StockPriceBuilder.class
+com\stockpredictor\service\PredictionService.class
+com\stockpredictor\model\StockPrice.class
+com\stockpredictor\repository\StockPriceRepository.class
+com\stockpredictor\model\PredictionResult$ForecastPoint$ForecastPointBuilder.class
+com\stockpredictor\StockPredictorApplication.class
+com\stockpredictor\controller\StockPriceController.class
+com\stockpredictor\service\StockPriceService.class
+com\stockpredictor\config\DataInitializer.class
+com\stockpredictor\config\GlobalExceptionHandler.class
+com\stockpredictor\controller\PredictionController.class
+com\stockpredictor\model\PredictionResult$ForecastPoint.class
+com\stockpredictor\model\PredictionResult.class

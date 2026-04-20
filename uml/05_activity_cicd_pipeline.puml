@@ -1,0 +1,136 @@
+@startuml Activity_CICD_Pipeline
+!theme plain
+skinparam backgroundColor #FAFBFC
+skinparam activityBackgroundColor #EEF4FB
+skinparam activityBorderColor #1F4E79
+skinparam activityFontColor #000000
+skinparam activityFontSize 12
+skinparam activityArrowColor #1F4E79
+skinparam activityArrowThickness 2
+skinparam activityDiamondBackgroundColor #FFF9E6
+skinparam activityDiamondBorderColor #CC9900
+skinparam activityDiamondFontColor #333333
+skinparam partitionBackgroundColor #F8F9FA
+skinparam partitionBorderColor #AAAAAA
+skinparam noteBorderColor #CC9900
+skinparam noteBackgroundColor #FFF9E6
+skinparam roundcorner 8
+skinparam swimlaneBorderThickness 2
+
+title Stock Options Predictor - Activity Diagram: CI/CD Pipeline
+
+|#E3F2FD| Developer Workstation |
+start
+:Write / modify source code;
+:git add && git commit\n**"feat: add OLS regression endpoint"**;
+:git push origin main;
+
+|#E8F5E9| GitHub Repository |
+:Receive push event;
+:Validate commit and branch;
+:Fire webhook to Jenkins\nPOST /github-webhook/;
+
+|#FFEBEE| Jenkins Pipeline |
+:Allocate build executor;
+
+partition "Stage 1 - Checkout" {
+    :git checkout <commit-sha>;
+    :Log commit message for traceability;
+}
+
+partition "Stage 2 - Build" {
+    :mvn clean package -DskipTests -B;
+    if (Compilation successful?) then (YES)
+        :Archive target/*.jar;
+    else (NO)
+        #FF8A80:BUILD FAILURE\nCompile error detected;
+        stop
+    endif
+}
+
+partition "Stage 3 - Unit Tests" {
+    :mvn test -B\n(PredictionServiceTest - 10 tests);
+    :Publish JUnit surefire-reports;
+    if (All unit tests pass?) then (YES)
+    else (NO)
+        #FF8A80:PIPELINE FAILED\nUnit test failure;
+        stop
+    endif
+}
+
+partition "Stage 4 - Integration Tests" {
+    :mvn verify -B\n(PredictionControllerIntegrationTest - 10 tests);
+    :JaCoCo generates jacoco.xml;
+    :Publish JUnit failsafe-reports;
+    if (All integration tests pass?) then (YES)
+    else (NO)
+        #FF8A80:PIPELINE FAILED\nIntegration test failure;
+        stop
+    endif
+    if (Line coverage >= 70%?) then (YES)
+    else (NO)
+        #FF8A80:PIPELINE FAILED\nJaCoCo coverage gate\nthreshold not met;
+        stop
+    endif
+}
+
+partition "Stage 5 - Static Analysis" {
+    :mvn sonar:sonar\n-Dsonar.token=***\n-Dsonar.projectKey=stock-predictor;
+    :Transmit coverage, bugs,\ncode smells to SonarQube;
+    if (Analysis submitted OK?) then (YES)
+    else (NO)
+        #FF8A80:PIPELINE FAILED\nSonarQube unreachable;
+        stop
+    endif
+}
+
+partition "Stage 6 - Quality Gate" {
+    :waitForQualityGate()\nPoll SonarQube API;
+    if (Quality Gate = PASSED?\n(coverage OK, 0 blockers,\n0 critical vulnerabilities)) then (YES)
+    else (NO)
+        #FF8A80:PIPELINE ABORTED\nQuality gate failed;\n[Docker build skipped\nDeployment skipped]
+        stop
+    endif
+}
+
+partition "Stage 7 - Docker Build" {
+    :docker build -t stock-predictor:$BUILD_NUMBER .;
+    note right
+        Multi-stage Dockerfile:
+        Stage 1: maven:3.9 → compile JAR
+        Stage 2: temurin:17-jre-alpine
+                 non-root user (appuser)
+    end note
+    if (Image built successfully?) then (YES)
+        :docker tag stock-predictor:$BUILD_NUMBER\nstock-predictor:latest;
+    else (NO)
+        #FF8A80:PIPELINE FAILED\nDocker build error;
+        stop
+    endif
+}
+
+partition "Stage 8 - Deploy" {
+    :docker stop stock-predictor || true;
+    :docker rm stock-predictor || true;
+    :docker run -d --name stock-predictor\n-p 8080:8080 stock-predictor:latest;
+    :sleep 20s (JVM startup);
+    :curl --fail http://localhost:8080/actuator/health;
+    if (Health check returns 200 OK\n{ "status": "UP" }?) then (YES)
+    else (NO)
+        #FF8A80:DEPLOYMENT FAILED\nHealth check did not pass;
+        stop
+    endif
+}
+
+|#E8F5E9| GitHub Repository |
+:Update commit status to SUCCESS;
+
+|#E3F2FD| Developer Workstation |
+:Receive pipeline SUCCESS notification\nBuild: #42 | Duration: ~5 min 43 sec;
+
+|#FFEBEE| Jenkins Pipeline |
+:cleanWs() - workspace cleanup;
+
+stop
+
+@enduml
