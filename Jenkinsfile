@@ -8,7 +8,7 @@ pipeline {
 
     options {
         timestamps()
-        timeout(time: 30, unit: 'MINUTES')
+        timeout(time: 45, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
@@ -62,9 +62,6 @@ pipeline {
 
         stage('Code Quality - SonarQube') {
             steps {
-                // withSonarQubeEnv registers the analysis context that
-                // waitForQualityGate requires. It must wrap the mvn call.
-                // withCredentials injects the token as an env variable.
                 withSonarQubeEnv('SonarQube') {
                     withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                         sh """
@@ -83,7 +80,9 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 echo 'Waiting for SonarQube quality gate result...'
-                timeout(time: 5, unit: 'MINUTES') {
+                // Increased to 10 minutes - SonarQube in Docker can be slow
+                // to process the report and fire the webhook back to Jenkins.
+                timeout(time: 10, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
