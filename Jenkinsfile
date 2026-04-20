@@ -2,20 +2,9 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME     = 'stock-predictor'
-        APP_VERSION  = '1.0.0'
-        DOCKER_IMAGE = "stock-predictor:${env.BUILD_NUMBER}"
-
-        // SonarQube runs as a Docker Compose service named 'sonarqube'.
-        // Inside the Docker network, Jenkins reaches it by service name.
-        SONAR_HOST   = 'http://sonarqube:9000'
-        SONAR_TOKEN  = credentials('sonar-token')
-
-        // JDK 21 is pre-installed in the jenkins/jenkins:lts-jdk21 image.
-        JAVA_HOME    = '/opt/java/openjdk'
-        MAVEN_HOME   = '/opt/maven'
-        PATH         = "/opt/maven/bin:${env.PATH}"
-        MAVEN_OPTS   = '-Xmx512m'
+        APP_NAME   = 'stock-predictor'
+        SONAR_HOST = 'http://sonarqube:9000'
+        MAVEN_OPTS = '-Xmx512m'
     }
 
     options {
@@ -37,37 +26,36 @@ pipeline {
         stage('Build') {
             steps {
                 echo 'Compiling and packaging artefact...'
-                sh 'mvn clean package -DskipTests -B'
+                sh '/opt/maven/bin/mvn clean package -DskipTests -B'
                 archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             }
         }
 
         stage('Unit Tests') {
             steps {
-                echo 'Running unit tests...'
-                sh 'mvn test -B'
+                sh '/opt/maven/bin/mvn test -B'
             }
             post {
                 always {
-                    junit 'target/surefire-reports/**/*.xml'
+                    junit testResults: 'target/surefire-reports/**/*.xml',
+                          allowEmptyResults: true
                 }
             }
         }
 
         stage('Integration Tests') {
             steps {
-                echo 'Running integration tests with Spring context...'
-                sh 'mvn verify -B'
+                sh '/opt/maven/bin/mvn verify -B'
             }
             post {
                 always {
-                    junit allowEmptyResults: true,
-                          testResults: 'target/failsafe-reports/**/*.xml'
+                    junit testResults: 'target/failsafe-reports/**/*.xml',
+                          allowEmptyResults: true
                     jacoco(
-                        execPattern:          'target/jacoco.exec',
-                        classPattern:         'target/classes',
-                        sourcePattern:        'src/main/java',
-                        minimumLineCoverage:  '70'
+                        execPattern:         'target/jacoco.exec',
+                        classPattern:        'target/classes',
+                        sourcePattern:       'src/main/java',
+                        minimumLineCoverage: '70'
                     )
                 }
             }
@@ -75,13 +63,13 @@ pipeline {
 
         stage('Code Quality - SonarQube') {
             steps {
-                echo 'Running static code analysis...'
-                withSonarQubeEnv('SonarQube') {
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                     sh """
-                        mvn sonar:sonar \
+                        /opt/maven/bin/mvn sonar:sonar \
+                            -Dsonar.host.url=${SONAR_HOST} \
+                            -Dsonar.token=${SONAR_TOKEN} \
                             -Dsonar.projectKey=${APP_NAME} \
                             -Dsonar.projectName='Stock Options Predictor' \
-                            -Dsonar.java.coveragePlugin=jacoco \
                             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
                             -B
                     """
@@ -91,7 +79,6 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                echo 'Waiting for SonarQube quality gate result...'
                 timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
@@ -100,28 +87,23 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                echo "Building Docker image: ${DOCKER_IMAGE}"
-                sh "docker build -t ${DOCKER_IMAGE} ."
-                sh "docker tag ${DOCKER_IMAGE} ${APP_NAME}:latest"
+                sh "docker build -t ${APP_NAME}:${BUILD_NUMBER} ."
+                sh "docker tag  ${APP_NAME}:${BUILD_NUMBER} ${APP_NAME}:latest"
             }
         }
 
         stage('Deploy') {
             steps {
-                echo 'Deploying containerised application...'
                 sh """
                     docker stop ${APP_NAME} || true
                     docker rm   ${APP_NAME} || true
                     docker run -d \
                         --name ${APP_NAME} \
-                        --network stock-predictor_default \
                         -p 8080:8080 \
                         --restart unless-stopped \
                         ${APP_NAME}:latest
-                    echo 'Waiting for application to start...'
                     sleep 25
-                    curl --fail http://localhost:8080/actuator/health || exit 1
-                    echo 'Deployment successful.'
+                    curl --fail http://localhost:8080/actuator/health
                 """
             }
         }
@@ -129,13 +111,10 @@ pipeline {
 
     post {
         success {
-            echo "Pipeline completed successfully. Build: #${env.BUILD_NUMBER}"
+            echo "BUILD #${BUILD_NUMBER} PASSED"
         }
         failure {
-            echo "Pipeline FAILED. Check the stage logs above."
-        }
-        always {
-            cleanWs()
+            echo "BUILD #${BUILD_NUMBER} FAILED"
         }
     }
 }
