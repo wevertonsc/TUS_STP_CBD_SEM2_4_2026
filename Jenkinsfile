@@ -3,7 +3,6 @@ pipeline {
 
     environment {
         APP_NAME   = 'stock-predictor'
-        SONAR_HOST = 'http://sonarqube:9000'
         MAVEN_OPTS = '-Xmx512m'
     }
 
@@ -63,22 +62,27 @@ pipeline {
 
         stage('Code Quality - SonarQube') {
             steps {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    sh """
-                        /opt/maven/bin/mvn sonar:sonar \
-                            -Dsonar.host.url=${SONAR_HOST} \
-                            -Dsonar.token=${SONAR_TOKEN} \
-                            -Dsonar.projectKey=${APP_NAME} \
-                            -Dsonar.projectName='Stock Options Predictor' \
-                            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                            -B
-                    """
+                // withSonarQubeEnv registers the analysis context that
+                // waitForQualityGate requires. It must wrap the mvn call.
+                // withCredentials injects the token as an env variable.
+                withSonarQubeEnv('SonarQube') {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                        sh """
+                            /opt/maven/bin/mvn sonar:sonar \
+                                -Dsonar.token=${SONAR_TOKEN} \
+                                -Dsonar.projectKey=${APP_NAME} \
+                                -Dsonar.projectName='Stock Options Predictor' \
+                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                                -B
+                        """
+                    }
                 }
             }
         }
 
         stage('Quality Gate') {
             steps {
+                echo 'Waiting for SonarQube quality gate result...'
                 timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
@@ -87,6 +91,7 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
+                echo "Building Docker image: ${APP_NAME}:${BUILD_NUMBER}"
                 sh "docker build -t ${APP_NAME}:${BUILD_NUMBER} ."
                 sh "docker tag  ${APP_NAME}:${BUILD_NUMBER} ${APP_NAME}:latest"
             }
