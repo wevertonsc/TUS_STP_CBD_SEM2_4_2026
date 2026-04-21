@@ -4,6 +4,7 @@ pipeline {
     environment {
         APP_NAME   = 'stock-predictor'
         MAVEN_OPTS = '-Xmx512m'
+        SONAR_HOST = 'http://sonarqube:9000'
     }
 
     options {
@@ -16,7 +17,6 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                echo 'Cloning source repository...'
                 checkout scm
                 sh 'git log --oneline -5'
             }
@@ -24,7 +24,6 @@ pipeline {
 
         stage('Build') {
             steps {
-                echo 'Compiling and packaging artefact...'
                 sh '/opt/maven/bin/mvn clean package -DskipTests -B'
                 archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             }
@@ -63,15 +62,20 @@ pipeline {
         stage('Code Quality - SonarQube') {
             steps {
                 withSonarQubeEnv('SonarQube') {
+                    // Use single quotes in withCredentials binding and
+                    // pass token via environment variable to avoid Groovy
+                    // string interpolation exposing the secret in logs.
                     withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                        sh """
+                        sh '''
                             /opt/maven/bin/mvn sonar:sonar \
-                                -Dsonar.token=${SONAR_TOKEN} \
-                                -Dsonar.projectKey=${APP_NAME} \
-                                -Dsonar.projectName='Stock Options Predictor' \
+                                -Dsonar.host.url=$SONAR_HOST \
+                                -Dsonar.token=$SONAR_TOKEN \
+                                -Dsonar.projectKey=$APP_NAME \
+                                -Dsonar.projectName="Stock Options Predictor" \
                                 -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                                -Dsonar.scm.disabled=true \
                                 -B
-                        """
+                        '''
                     }
                 }
             }
@@ -79,9 +83,6 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                echo 'Waiting for SonarQube quality gate result...'
-                // Increased to 10 minutes - SonarQube in Docker can be slow
-                // to process the report and fire the webhook back to Jenkins.
                 timeout(time: 10, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
@@ -90,7 +91,6 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                echo "Building Docker image: ${APP_NAME}:${BUILD_NUMBER}"
                 sh "docker build -t ${APP_NAME}:${BUILD_NUMBER} ."
                 sh "docker tag  ${APP_NAME}:${BUILD_NUMBER} ${APP_NAME}:latest"
             }
