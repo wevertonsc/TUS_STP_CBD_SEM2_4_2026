@@ -5,28 +5,27 @@ services:
     build:
       context: ./jenkins
       dockerfile: Dockerfile
-      args:
-        # Must match the Docker group GID on your host.
-        # Run: getent group docker | cut -d: -f3   (Linux/macOS)
-        # On Docker Desktop for Windows the socket is proxied, GID 999 works.
-        DOCKER_GID: "999"
     container_name: jenkins
+    # Fix Docker socket permissions on every container start.
+    # The entrypoint runs as root to chmod the socket, then drops to jenkins.
+    # This is needed on Docker Desktop for Windows where the socket GID
+    # does not match any group inside the container.
+    user: root
+    entrypoint: >
+      /bin/sh -c "
+        chmod 666 /var/run/docker.sock &&
+        exec su -s /bin/bash jenkins -c '/usr/bin/tini -- /usr/local/bin/jenkins.sh'
+      "
     ports:
-      - "8090:8080"    # Jenkins web UI  →  http://localhost:8090
-      - "50000:50000"  # Jenkins agent port
+      - "8090:8080"
+      - "50000:50000"
     environment:
-      # Point JCasC at the mounted config file
       - CASC_JENKINS_CONFIG=/var/jenkins_home/casc_configs/casc.yaml
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Xmx1g
     volumes:
-      # Persist all Jenkins data across container restarts
       - jenkins_home:/var/jenkins_home
-      # Mount the JCasC config file
       - ./jenkins/casc.yaml:/var/jenkins_home/casc_configs/casc.yaml:ro
-      # Mount host Docker socket so pipeline stages can run docker commands
       - /var/run/docker.sock:/var/run/docker.sock
-      # Mount the Maven local repository cache to avoid re-downloading
-      # dependencies on every build
       - maven_repo:/root/.m2
     depends_on:
       sonarqube:
@@ -40,7 +39,7 @@ services:
     image: sonarqube:10.4-community
     container_name: sonarqube
     ports:
-      - "9000:9000"    # SonarQube web UI  →  http://localhost:9000
+      - "9000:9000"
     environment:
       - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
     volumes:
@@ -58,15 +57,13 @@ services:
       - cicd
 
   # ── Stock Predictor Application ─────────────────────────────────────────────
-  # This service is used for manual local testing with docker compose up.
-  # In the CI/CD flow, Jenkins builds and deploys this image directly.
   stock-predictor:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: stock-predictor
     ports:
-      - "8080:8080"    # App REST API  →  http://localhost:8080
+      - "8080:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=dev
     healthcheck:
@@ -79,7 +76,6 @@ services:
     networks:
       - cicd
 
-# ── Named volumes ───────────────────────────────────────────────────────────
 volumes:
   jenkins_home:
   maven_repo:
@@ -87,10 +83,6 @@ volumes:
   sonarqube_logs:
   sonarqube_extensions:
 
-# ── Shared network ──────────────────────────────────────────────────────────
-# All services share one network so Jenkins can reach SonarQube by
-# service name (http://sonarqube:9000) and the app by service name
-# (http://stock-predictor:8080).
 networks:
   cicd:
     driver: bridge
