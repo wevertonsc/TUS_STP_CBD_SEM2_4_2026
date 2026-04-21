@@ -101,17 +101,23 @@ pipeline {
                 sh """
                     docker stop ${APP_NAME} || true
                     docker rm   ${APP_NAME} || true
+
+                    JENKINS_NETWORK=\$(docker inspect jenkins --format='{{range \$k,\$v := .NetworkSettings.Networks}}{{\$k}} {{end}}' | awk '{print \$1}')
+                    echo "Jenkins network: \$JENKINS_NETWORK"
+
                     docker run -d \
                         --name ${APP_NAME} \
+                        --network \$JENKINS_NETWORK \
                         -p 8080:8080 \
                         --restart unless-stopped \
                         ${APP_NAME}:latest
-                    sleep 25
-                    curl --fail http://localhost:8080/actuator/health
+
+                    sleep 30
+                    curl --fail http://${APP_NAME}:8080/actuator/health
+                    echo 'Deployment successful.'
                 """
             }
         }
-    }
 
     post {
         success {
