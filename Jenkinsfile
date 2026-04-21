@@ -4,7 +4,6 @@ pipeline {
     environment {
         APP_NAME   = 'stock-predictor'
         MAVEN_OPTS = '-Xmx512m'
-        SONAR_HOST = 'http://sonarqube:9000'
     }
 
     options {
@@ -62,21 +61,14 @@ pipeline {
         stage('Code Quality - SonarQube') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    // Use single quotes in withCredentials binding and
-                    // pass token via environment variable to avoid Groovy
-                    // string interpolation exposing the secret in logs.
-                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                        sh '''
-                            /opt/maven/bin/mvn sonar:sonar \
-                                -Dsonar.host.url=$SONAR_HOST \
-                                -Dsonar.token=$SONAR_TOKEN \
-                                -Dsonar.projectKey=$APP_NAME \
-                                -Dsonar.projectName="Stock Options Predictor" \
-                                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-                                -Dsonar.scm.disabled=true \
-                                -B
-                        '''
-                    }
+                    sh '''
+                        /opt/maven/bin/mvn sonar:sonar \
+                            -Dsonar.projectKey=stock-predictor \
+                            -Dsonar.projectName="Stock Options Predictor" \
+                            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                            -Dsonar.scm.disabled=true \
+                            -B
+                    '''
                 }
             }
         }
@@ -98,26 +90,29 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                sh """
-                    docker stop ${APP_NAME} || true
-                    docker rm   ${APP_NAME} || true
-
-                    JENKINS_NETWORK=\$(docker inspect jenkins --format='{{range \$k,\$v := .NetworkSettings.Networks}}{{\$k}} {{end}}' | awk '{print \$1}')
-                    echo "Jenkins network: \$JENKINS_NETWORK"
+                // Single quotes prevent Groovy interpolation.
+                // This avoids the {{ }} Go template syntax being
+                // misinterpreted by the Groovy parser.
+                sh '''
+                    docker stop stock-predictor || true
+                    docker rm   stock-predictor || true
 
                     docker run -d \
-                        --name ${APP_NAME} \
-                        --network \$JENKINS_NETWORK \
+                        --name stock-predictor \
+                        --network tus_stp_cbd_sem2_4_2026_cicd \
                         -p 8080:8080 \
                         --restart unless-stopped \
-                        ${APP_NAME}:latest
+                        stock-predictor:latest
 
+                    echo "Waiting for application to start..."
                     sleep 30
-                    curl --fail http://${APP_NAME}:8080/actuator/health
-                    echo 'Deployment successful.'
-                """
+
+                    curl --fail http://stock-predictor:8080/actuator/health
+                    echo "Deployment successful."
+                '''
             }
         }
+    }
 
     post {
         success {
